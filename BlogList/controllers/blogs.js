@@ -10,6 +10,20 @@ blogsRouter.get("/", async (request, response) => {
   response.json(blogs);
 });
 
+// GET route for getting single ID
+blogsRouter.get("/:id", async (request, response, next) => {
+  try {
+    const blog = await Blog.findById(request.params.id);
+    if (blog) {
+      response.json(blog);
+    } else {
+      response.status(404).end();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Route for creating a new blog
 blogsRouter.post("/", async (request, response, next) => {
   const body = request.body;
@@ -30,6 +44,35 @@ blogsRouter.post("/", async (request, response, next) => {
     } else {
       next(error);
     }
+  }
+});
+
+// Route for updating likes
+blogsRouter.put("/:id", async (request, response, next) => {
+  const body = request.body;
+
+  console.log("Received data for update:", body);
+
+  const blog = {
+    title: body.title,
+    author: body.author,
+    url: body.url,
+    likes: body.likes,
+  };
+
+  try {
+    const updatedBlog = await Blog.findByIdAndUpdate(request.params.id, blog, {
+      new: true,
+    });
+    if (updatedBlog) {
+      console.log("Updated blog:", updatedBlog);
+      response.json(updatedBlog);
+    } else {
+      response.status(404).end();
+    }
+  } catch (error) {
+    console.error("Error updating blog:", error);
+    next(error);
   }
 });
 

@@ -167,15 +167,39 @@ test("Testing the deletion of a Blog", async () => {
 
   const blogToDelete = blogsAtStart.body[0];
 
-  await api.delete(`/api/blogs/${blogToDelete}`).expect(204);
+  await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204);
 
   const blogsAtEnd = await api.get("/api/blogs");
   const blogsCountEnd = blogsAtEnd.body.length;
 
-  assert.strictEqual(blogsAtEnd.length, blogsAtStart.length - 1);
+  assert.strictEqual(blogsCountEnd, blogsCountStart - 1);
 
   const contents = blogsAtEnd.body.map((r) => r.title);
-  assert(!titles.includes(blogToDelete.title));
+  assert(!contents.includes(blogToDelete.title));
+});
+
+test("Testing the updating of likes", async () => {
+  const blogsAtStart = await api.get("/api/blogs");
+  const originalBlog = blogsAtStart.body[0];
+
+  const originalBlogLikes = originalBlog.likes;
+  const originalBlogID = originalBlog.id;
+
+  const updatedLikes = originalBlogLikes + 1;
+  const updatedBlog = { ...originalBlog, likes: updatedLikes };
+
+  const putResponse = await api
+    .put(`/api/blogs/${originalBlogID}`)
+    .send(updatedBlog)
+    .expect(200);
+  console.log("PUT response:", putResponse.body);
+
+  const getResponse = await api.get(`/api/blogs/${originalBlogID}`);
+  console.log("GET response:", getResponse.body);
+  const updatedBlogLikes = getResponse.body.likes;
+
+  console.log("LIKES LIKES LIKES:", updatedBlogLikes);
+  assert.strictEqual(updatedBlogLikes, updatedLikes);
 });
 
 after(async () => {
