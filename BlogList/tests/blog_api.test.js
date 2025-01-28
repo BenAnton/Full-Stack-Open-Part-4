@@ -4,9 +4,12 @@ const assert = require("node:assert");
 const supertest = require("supertest");
 const mongoose = require("mongoose");
 const app = require("../app");
+const bcrypt = require("bcrypt");
+
 const api = supertest(app);
 
 const Blog = require("../models/blog");
+const User = require("../models/user");
 
 const initialBlogs = [
   {
@@ -30,11 +33,35 @@ const initialBlogs = [
 beforeEach(async () => {
   try {
     await Blog.deleteMany({});
-    for (let blog of initialBlogs) {
+    await User.deleteMany({});
+
+    const passwordHash = await bcrypt.hash("TestPassword", 10);
+    const user = new User({
+      username: "TestUser",
+      name: "TestPassword",
+      passwordHash,
+    });
+
+    const savedUser = await user.save();
+
+    const blogsWithUser = initialBlogs.map((blog) => ({
+      ...blog,
+      user: savedUser._id,
+    }));
+
+    for (let blog of blogsWithUser) {
       let blogObject = new Blog(blog);
       await blogObject.save();
     }
-    console.log("Database initialized with initial blogs");
+
+    const blogIds = (await Blog.find({})).map((blog) => blog._id);
+    await User.findByIdAndUpdate(
+      savedUser._id,
+      { blogs: blogIds },
+      { new: true }
+    );
+
+    console.log("Database initialized with initial blogs and user");
   } catch (error) {
     console.error("Error in beforeEach:", error);
     throw error;
@@ -84,6 +111,12 @@ test("check id and not _id", async () => {
 });
 
 test("create new post and check that the amount of blogs is incremented", async () => {
+  const loginResponse = await api
+    .post("/api/login")
+    .send({ username: "TestUser", password: "TestPassword" });
+
+  const token = loginResponse.body.token;
+
   const initialBlogs = await api.get("/api/blogs");
   const initialBlogCount = initialBlogs.body.length;
 
@@ -94,7 +127,11 @@ test("create new post and check that the amount of blogs is incremented", async 
     likes: 99,
   };
 
-  await api.post("/api/blogs").send(newBlog).expect(201);
+  await api
+    .post("/api/blogs")
+    .set("Authorization", `Bearer ${token}`)
+    .send(newBlog)
+    .expect(201);
 
   const updatedBlogs = await api.get("/api/blogs");
   const updatedBlogCount = updatedBlogs.body.length;
@@ -105,7 +142,28 @@ test("create new post and check that the amount of blogs is incremented", async 
   assert(titles.includes(newBlog.title));
 });
 
+test("creating a blog without a token fails", async () => {
+  const newBlog = {
+    title: "Test Title",
+    author: "Test Author",
+    url: "testURL.com",
+  };
+
+  await api
+    .post("/api/blogs")
+    .send(newBlog)
+    .expect(401)
+    .expect("Content-Type", /application\/json/);
+});
+
 test("testing for likes inclusion and defaulting to zero", async () => {
+  const loginResponse = await api.post("/api/login").send({
+    username: "TestUser",
+    password: "TestPassword",
+  });
+
+  const token = loginResponse.body.token;
+
   const newBlog = {
     title: "Test Title",
     author: "Test Author",
@@ -115,7 +173,12 @@ test("testing for likes inclusion and defaulting to zero", async () => {
   if (!newBlog.hasOwnProperty("likes")) {
     newBlog.likes = 0;
   }
-  await api.post("/api/blogs").send(newBlog).expect(201);
+
+  await api
+    .post("/api/blogs")
+    .set("Authorization", `Bearer ${token}`)
+    .send(newBlog)
+    .expect(201);
 
   const response = await api.get("/api/blogs");
   const createdBlog = response.body.find(
@@ -126,48 +189,90 @@ test("testing for likes inclusion and defaulting to zero", async () => {
 });
 
 test("checking for missing title properties", async () => {
+  const loginResponse = await api.post("/api/login").send({
+    username: "TestUser",
+    password: "TestPassword",
+  });
+
+  const token = loginResponse.body.token;
+
   const newBlog = {
     author: "Test Author",
     url: "testURL.com",
   };
 
-  await api.post("/api/blogs").send(newBlog).expect(400);
+  await api
+    .post("/api/blogs")
+    .set("Authorization", `Bearer ${token}`)
+    .send(newBlog)
+    .expect(400);
 
   const response = await api.get("/api/blogs");
   assert.strictEqual(response.body.length, initialBlogs.length);
 });
 
 test("checking for missing author properties", async () => {
+  const loginResponse = await api
+    .post("/api/login")
+    .send({ username: "TestUser", password: "TestPassword" });
+
+  const token = loginResponse.body.token;
+
   const newBlog = {
     title: "Test Title",
     url: "testURL.com",
   };
 
-  await api.post("/api/blogs").send(newBlog).expect(400);
+  await api
+    .post("/api/blogs")
+    .set("Authorization", `Bearer ${token}`)
+    .send(newBlog)
+    .expect(400);
 
   const response = await api.get("/api/blogs");
   assert.strictEqual(response.body.length, initialBlogs.length);
 });
 
 test("checking for missing url property", async () => {
+  const loginResponse = await api.post("/api/login").send({
+    username: "TestUser",
+    password: "TestPassword",
+  });
+
+  const token = loginResponse.body.token;
+
   const newBlog = {
     title: "Test Title",
     author: "Test Author",
   };
 
-  await api.post("/api/blogs").send(newBlog).expect(400);
+  await await api
+    .post("/api/blogs")
+    .set("Authorization", `Bearer ${token}`)
+    .send(newBlog)
+    .expect(400);
 
   const response = await api.get("/api/blogs");
   assert.strictEqual(response.body.length, initialBlogs.length);
 });
 
 test("Testing the deletion of a Blog", async () => {
+  const loginResponse = await api.post("/api/login").send({
+    username: "TestUser",
+    password: "TestPassword",
+  });
+
+  const token = loginResponse.body.token;
+
   const blogsAtStart = await api.get("/api/blogs");
   const blogsCountStart = blogsAtStart.body.length;
 
   const blogToDelete = blogsAtStart.body[0];
 
-  await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204);
+  await api
+    .delete(`/api/blogs/${blogToDelete.id}`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(204);
 
   const blogsAtEnd = await api.get("/api/blogs");
   const blogsCountEnd = blogsAtEnd.body.length;

@@ -6,6 +6,10 @@ const blogSchema = new mongoose.Schema({
   author: { type: String, required: true },
   url: { type: String, required: true },
   likes: { type: Number, default: 0 },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
 });
 
 //  change _id to id and remove __v
@@ -17,9 +21,7 @@ blogSchema.set("toJSON", {
   },
 });
 
-blogSchema.set();
-
 // BlogList is the DB name.
-const Blog = mongoose.model("BlogList", blogSchema);
+const Blog = mongoose.model("blog", blogSchema);
 
 module.exports = Blog;

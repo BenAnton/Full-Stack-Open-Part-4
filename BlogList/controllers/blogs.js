@@ -1,12 +1,14 @@
 const express = require("express");
 const Blog = require("../models/blog");
+const User = require("../models/user");
+const jwt = require("jsonwebtoken");
 
 // Creating router instance for handling blog routes
 const blogsRouter = express.Router();
 
 // GET route for fetching all blog posts from DB
 blogsRouter.get("/", async (request, response) => {
-  const blogs = await Blog.find({});
+  const blogs = await Blog.find({}).populate("user", { username: 1, name: 1 });
   response.json(blogs);
 });
 
@@ -26,25 +28,30 @@ blogsRouter.get("/:id", async (request, response, next) => {
 
 // Route for creating a new blog
 blogsRouter.post("/", async (request, response, next) => {
-  const body = request.body;
+  const { title, author, url } = request.body;
+
+  if (!title || !author || !url) {
+    return response
+      .status(400)
+      .json({ error: "title. author and url are required" });
+  }
+
+  if (!request.user) {
+    return response.status(401).json({ error: "user not authenticated" });
+  }
 
   const blog = new Blog({
-    title: body.title,
-    author: body.author,
-    url: body.url,
-    likes: body.likes || 0,
+    title,
+    author,
+    url,
+    user: request.user._id,
   });
 
-  try {
-    const savedBlog = await blog.save();
-    response.status(201).json(savedBlog);
-  } catch (error) {
-    if (error.name === "Validation Error") {
-      response.status(400).json({ error: error.message });
-    } else {
-      next(error);
-    }
-  }
+  const savedBlog = await blog.save();
+  request.user.blogs = request.user.blogs.concat(savedBlog._id);
+  await request.user.save();
+
+  response.status(201).json(savedBlog);
 });
 
 // Route for updating likes
@@ -77,9 +84,28 @@ blogsRouter.put("/:id", async (request, response, next) => {
 });
 
 // Route for deleting a blog
-blogsRouter.delete("/:id", async (request, response) => {
-  await Blog.findByIdAndDelete(request.params.id);
-  response.status(204).end();
+blogsRouter.delete("/:id", async (request, response, next) => {
+  if (!request.user) {
+    return response.status(401).json({ error: "User not authenicated" });
+  }
+
+  const blog = await Blog.findById(request.params.id).populate("user");
+  if (!blog) {
+    return response.status(404).json({ error: "not found" });
+  }
+  console.log("Authenticated User:", request.user.id);
+  console.log("Blog Owner:", blog.user);
+
+  if (!blog.user || blog.user.id.toString() !== request.user._id.toString()) {
+    return response.status(403).json({ error: "Not authorized" });
+  }
+
+  try {
+    await Blog.findByIdAndDelete(request.params.id);
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
 });
 
 module.exports = blogsRouter;
